@@ -1,0 +1,100 @@
+# This code adapted from the blog: https://devinincerti.com/2015/10/31/bayesian-meta-analysis.html
+
+
+# Load R package and initialize
+library(bayesplot)
+library(rstan)
+library(ggplot2)
+
+# Prepare data
+rct <- data.frame(Author = c("German RSAIVIG","Christiansen",
+                            "Coulam","Perino","Stephenson","Jablonowska","HJA",
+                            "Christiansen","Stephenson", "Ramos Medina",
+                            "Christiansen","Ahmadi Majid",'Ahmadi Majid ',
+                            "This article"))
+rct$year <- c(1994,1995,1995,1997,1998,1999,2001,2002,2010,2014,2015,2017,2019,2022)
+rct$d1 <- c(20,9,18,16,12,17,28,13,16,79,23,28,33,1370)
+rct$n1 <- c(33,17,29,22,20,22,72,29,23,82,42,32,38,2109)
+rct$d0 <- c(21,5,11,20,10,15,18,13,15,12,20,5,18,36)
+rct$n0 <- c(31,17,32,24,21,19,74,29,24,39,40,12,40,207)
+#d1,n1 treatment
+#d0,n0 control
+
+#Calculate cure rate, relative risk and confidence interval
+rct$p1 <- rct$d1/rct$n1
+rct$p0 <- rct$d0/rct$n0
+rct$rr <- rct$p1/rct$p0
+rct$logrr <- log(rct$rr)                   #Logarithm of relative risk
+rct$logse <- sqrt((1 - rct$p1)/(rct$p1 * rct$n1) + (1 - rct$p0)/(rct$p0 * rct$n0))
+rct$lower <- exp(rct$logrr - qnorm(.975) * rct$logse)
+rct$upper <- exp(rct$logrr + qnorm(.975) * rct$logse)
+set.seed(1234)
+J <- nrow(rct)          
+stan.dat <- list(J = J, y = rct$logrr,  sigma = rct$logse)  
+
+# Write stan code
+stancode <- "
+data {
+  int<lower=0> J; 
+  real y[J]; 
+  real<lower=0> sigma[J]; 
+}
+
+parameters {
+  real mu;
+  real<lower=0> tau;
+  real eta[J];
+}
+transformed parameters {
+  real theta[J];
+  for (j in 1:J)
+    theta[j] = mu + tau * eta[j];
+}
+model {
+  eta ~ normal(0, 1);
+  y ~ normal(theta, sigma);
+}
+"
+#fit the model
+fit <- stan(model_code = stancode,
+            data = stan.dat, iter = 4000, chains = 4)
+
+#Posterior analysis
+post <- extract(fit, permuted = TRUE)
+quantile(exp(post$mu), probs = c(.025, .5, .975))      #the overall average
+quantile(post$tau, probs = c(.025, .5, .975))
+p.dat <- apply(exp(post$theta), 2, quantile, probs = c(.025, .5, .975))
+p.dat <- data.frame(lower = p.dat[1, ], rr = p.dat[2, ], upper = p.dat[3, ])
+p.dat <- rbind(p.dat, rct[, c("lower", "upper", "rr")])
+p.dat$lab <- rep(c("Theta", "Y"), each = J)
+p.dat$id <- rep(seq(14, 1), 2)
+p.dat$idlab <- factor(p.dat$id, labels = rev(paste(rct$Author, rct$year, sep = ", ")))
+p.dat$yint <- mean(exp(post$mu))
+ggplot(p.dat, aes(x = idlab, y = rr, ymin = lower, ymax = upper, col = lab)) +
+  geom_pointrange(aes(col = lab), position = position_dodge(width = 0.50)) +
+  coord_flip() + geom_hline(aes(yintercept = yint), lty = 2) +  xlab("") +
+  ylab("")  + theme(legend.position="bottom") +
+  scale_colour_discrete(name="",
+                        labels = c("Theta" = bquote("Random effect:"~exp(theta[J])~" "),
+                                   "Y"= bquote("Relative risk:"~exp(Y[J]))))+
+  
+  theme(legend.key.size = unit(10, "pt"))+
+  theme(legend.text=element_text(size=15))+
+  theme(axis.text.x =element_text(size=20))+
+  theme(axis.text.y =element_text(size=15))+
+  theme(
+    plot.margin = margin(t = 20,  # Top edge distance
+                         r = 10,  # Right edge distance
+                         b = 10,  # Below edge distance
+                         l = 20))+ # Left edge distance
+  theme(axis.title=element_text(size=15,face="bold"))+
+  theme(text = element_text(size = 20))+
+  theme(panel.background = element_rect(fill = 'white'))+
+  theme(panel.border = element_rect(fill=NA,color="black", size=2, linetype="solid"))
+
+s <- nrow(post$mu)
+theta<- rep(NA, s)
+for (i in 1:s){
+  theta.new[i]  <- rnorm(1,  post$mu[i],  post$tau[i])
+}
+quantile(exp(theta), probs = c(.025, .5, .975))
