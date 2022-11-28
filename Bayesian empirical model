@@ -1,0 +1,86 @@
+#Load R package and initialize
+library(projpred)
+library(rstanarm)
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(bayesplot)
+library(forestplot)
+library(sjPlot)
+library(sjlabelled)
+library(sjmisc)
+library(readxl)
+theme_set(theme_classic())
+options(mc.cores = 64)
+setwd("D:/rsa")
+
+#Prepare data
+name_en = c(
+  'BA Treatment Result', 'Age', 'Weight', 'Height', 'BMI', 'Pregnant Times', 'Delivery Times', 'Cesarean Delivery Times', 'Natural Labour Times',
+  'Induced Labour Times', 'Spotaneous Abortion Times', 'Abortion Time/Day', 'Fetal Heart', 'Curettage', 'First Trimester', 'Second Trimester', 'Disease History',
+  'Operation History', 'Non-operation History', 'Menophania', 'Menstrual Cycle', 'Menstrual Cycle/Day', 'Average Period', 'Menstrual Blood Volume', 'Menstrual Pain', 'Other History',
+  'Husband', 'UU', 'Syphilis', 'CT', 'HPV', 'TORCH', 'B19 Small Virus', 'FSH', 'LH', 'E2',
+  'P', 'PRL', 'T', 'Insulin', 'TSH', 'TT3', 'TT4', 'FT3', 'FT4', 'TPOAb',
+  'Saccharify', 'PTH', 'Unpregnancy(0h/1h/2h)', 'Blocking Antibody', 'Anticardiolipin Antibody', 'Endomethal Antibody', 'Antiovarian Antibody',
+  'Antisperm Antibody ', 'Anticardiolipin Antibody(IgG)', 'Anticardiolipin Antibody(IgM)', 'Anti-β2 glycoprotein I Antibody(IgG)', 'Antinuclear Antibodies',
+  'NK Cell', 'Lupus Anticoagulant(LA)', 'Rheumatoid Factors(RF)', 'Homocysteine', 'Protein C',
+  'Protein S', 'D Dimer', 'Activated Partial Thromboplastin Time(APTT)', 'Prothrombin Time(PT)', 'Antithrombin-III（AT-III）',
+  'AMH', 'Fetal Chromosome Abnormalities', 'Male PBC Abnormality', 'Female PBC Abnormality', 'Rountine A', 'Rountine B',
+  'Routine A+B', 'Aberration Rate%', 'Mycoplasma', 'Chlamydia', 'Blood Routine Examination', 'Blood Type', 'RH', 'Thrombin', 'Hepatorenal Function',
+  'Blood Sugar(-Normal，+High)', 'Blood Lipid Tc(-Normal，+High)',
+  'Blood Immunoroutine'
+)
+name_en = make.names(name_en, unique = TRUE)
+x_ =read_xlsx('x1.xlsx')
+colnames(x_)[colnames(x_) == "X"] = "id"
+colnames(x_) = c("id", name_en)
+y = read_xlsx("y.xlsx")
+colnames(y) =  c("index", "y")
+y["y"] = sapply((y["y"] + 1e6) / 2e6, as.integer)           # Convert y to 0, 1
+x_ = x_[c('BA.Treatment.Result','Age','Weight','Height','BMI','Pregnant.Times','Delivery.Times','Cesarean.Delivery.Times','Natural.Labour.Times','Induced.Labour.Times','Spotaneous.Abortion.Times','Abortion.Time.Day','Fetal.Heart','Curettage','First.Trimester','Second.Trimester','Disease.History','Operation.History','Non.operation.History','Menophania','Menstrual.Cycle','Menstrual.Cycle.Day','Average.Period','Menstrual.Blood.Volume','Menstrual.Pain','Other.History',
+          'Husband','UU','Syphilis','CT','HPV','TORCH','B19.Small.Virus','FSH','LH','E2','P','PRL','T','Insulin','TSH','TT3','TT4','FT3','FT4','TPOAb',
+          'Saccharify','PTH','Unpregnancy.0h.1h.2h.','Blocking.Antibody','Anticardiolipin.Antibody','Endomethal.Antibody','Antiovarian.Antibody',
+          'Antisperm.Antibody.','Anticardiolipin.Antibody.IgG.','Anticardiolipin.Antibody.IgM.','Anti.β2.glycoprotein.I.Antibody.IgG.','Antinuclear.Antibodies',
+          'NK.Cell','Lupus.Anticoagulant.LA.','Rheumatoid.Factors.RF.','Homocysteine','Protein.C',
+          'Protein.S','D.Dimer','Activated.Partial.Thromboplastin.Time.APTT.','Prothrombin.Time.PT.','Antithrombin.III.AT.III.',
+          'AMH','Fetal.Chromosome.Abnormalities','Male.PBC.Abnormality','Female.PBC.Abnormality','Rountine.A','Rountine.B','Routine.A.B','Aberration.Rate.','Mycoplasma','Chlamydia','Blood.Routine.Examination','Blood.Type','RH','Thrombin','Hepatorenal.Function',
+          'Blood.Sugar..Normal..High.','Blood.Lipid.Tc..Normal..High.',
+          'Blood.Immunoroutine' )]
+
+x = lapply(x_[colnames(x_)], as.factor) #x converted to factor
+data = cbind(y["y"], x)                       # Put x, y together as data
+#The formula of models  
+form1=as.formula(y ~BA.Treatment.Result*(Age+Blood.Type+Anticardiolipin.Antibody.IgM.))    #The formula of empirical model
+
+#fit the model
+fit_va1<- stan_glm(
+  formula = form1,
+  data = data,
+  prior =student_t(3, 0, 1),
+  family = binomial("logit"),
+  seed = 1234,
+  chains = 4
+)
+
+# see the empirical model's predictive performance
+vs_va1 <- varsel(fit_va1,method="forward")
+solution_terms(vs_va1)
+plot(vs_va1, stats = "acc")                 #The accuracy of the model
+plot(vs_va1, stats = "elpd")                #The expected log predictive density of the model
+
+
+
+# projection of the empirical moedel, to see the main effect of BA.Treatment.result and interactions between BA.Treatment.result and other features
+proj1 <- project(vs_va1, nterms = 7, ndraws = 100, prob_outer=0.95)
+h=as.matrix(proj1)[,1:2]                       # Find the number of columns you want to analyze
+temp_pars = c("Intercept")
+#temp_pars = c("BA.Treatment.Result")
+#temp_pars = c("BA.Treatment.Result2")
+#temp_pars = c("BA.Treatment.Result3")
+mcmc_areas(h, regex_pars=temp_pars)
+
+
+# Posterier predictive check
+
+plot(bayesplot::bayesplot_grid(pp_check(fit_va1, seed = 123)))
+          
