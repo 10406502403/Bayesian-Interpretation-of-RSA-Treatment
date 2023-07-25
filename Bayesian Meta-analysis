@@ -1,22 +1,119 @@
 # This code adapted from the blog: https://devinincerti.com/2015/10/31/bayesian-meta-analysis.html
-
-
 # Load R package and initialize
 library(bayesplot)
 library(rstan)
 library(ggplot2)
-
+library(showtext)
+showtext_auto()
+setwd("D:/rsa")
 # Prepare data
-rct <- data.frame(Author = c("German RSAIVIG","Christiansen",
-                            "Coulam","Perino","Stephenson","Jablonowska","HJA",
-                            "Christiansen","Stephenson", "Ramos Medina",
-                            "Christiansen","Ahmadi Majid",'Ahmadi Majid ',
-                            "This article"))
-rct$year <- c(1994,1995,1995,1997,1998,1999,2001,2002,2010,2014,2015,2017,2019,2022)
-rct$d1 <- c(20,9,18,16,12,17,28,13,16,79,23,28,33,1370)
-rct$n1 <- c(33,17,29,22,20,22,72,29,23,82,42,32,38,2109)
-rct$d0 <- c(21,5,11,20,10,15,18,13,15,12,20,5,18,36)
-rct$n0 <- c(31,17,32,24,21,19,74,29,24,39,40,12,40,207)
+rct <- data.frame(Author = c("Mowbray JF","Cauchi MN","HO HONG‐NERNG","CLARK DAVID A",
+                              "GATENBY PAUL A","Coulam CB","Reznikoff-ET MF",
+                               "Illeni Maria Teresa","Christiansen Ole B",
+                               "Carp HJ","Hong L","Pandey Manoj Kumar",
+                               "Cui YP","Lin S","Aiwu W","Bin T","Chen Jian-Ling",
+                             "Sarno","Sudong Liu","This article"))
+rct$year <- c(1985,
+              1991,
+              1991,
+              1991,
+              1993,
+              1994,
+              1994,
+              1994,
+              1994,
+              1997,
+              2003,
+              2004,
+              2011,
+              2012,
+              2013,
+              2013,
+              2016,
+              2019,
+              2021,
+              2022)
+rct$d1 <- c(25,
+            13,
+            33,
+            7,
+            13,
+            6,
+            17,
+            10,
+            31,
+            5,
+            18,
+            21,
+            41,
+            33,
+            250,
+            32,
+            341,
+            452,
+            233,
+            1370)
+rct$n1 <- c(37,
+            20,
+            42,
+            11,
+            19,
+            10,
+            26,
+            16,
+            48,
+            11,
+            21,
+            25,
+            49,
+            42,
+            297,
+            39,
+            380,
+            752,
+            444,
+            2109)
+rct$d0 <- c(14,
+            16,
+            32,
+            2,
+            12,
+            5,
+            14,
+            11,
+            16,
+            11,
+            2,
+            6,
+            24,
+            17,
+            254,
+            18,
+            119,
+            114,
+            39,
+            36)
+rct$n0 <- c(30,
+            22,
+            49,
+            7,
+            20,
+            12,
+            26,
+            14,
+            28,
+            31,
+            8,
+            20,
+            45,
+            42,
+            591,
+            39,
+            369,
+            344,
+            260,
+            207)
+rct$weight <- 1 / rct$n1 
 #d1,n1 treatment
 #d0,n0 control
 
@@ -24,13 +121,13 @@ rct$n0 <- c(31,17,32,24,21,19,74,29,24,39,40,12,40,207)
 rct$p1 <- rct$d1/rct$n1
 rct$p0 <- rct$d0/rct$n0
 rct$rr <- rct$p1/rct$p0
-rct$logrr <- log(rct$rr)                   #Logarithm of relative risk
-rct$logse <- sqrt((1 - rct$p1)/(rct$p1 * rct$n1) + (1 - rct$p0)/(rct$p0 * rct$n0))
-rct$lower <- exp(rct$logrr - qnorm(.975) * rct$logse)
-rct$upper <- exp(rct$logrr + qnorm(.975) * rct$logse)
-set.seed(1234)
+rct$lrr <- log(rct$rr)                   #Logarithm of relative risk
+rct$lse <- sqrt((1 - rct$p1)/(rct$p1 * rct$n1) + (1 - rct$p0)/(rct$p0 * rct$n0))
+rct$lower <- exp(rct$lrr - qnorm(.975) * rct$lse)
+rct$upper <- exp(rct$lrr + qnorm(.975) * rct$lse)
+set.seed(101)
 J <- nrow(rct)          
-stan.dat <- list(J = J, y = rct$logrr,  sigma = rct$logse)  
+stan.dat <- list(J = J, y = rct$lrr,  sigma = rct$lse)  
 
 # Write stan code
 stancode <- "
@@ -44,6 +141,7 @@ parameters {
   real mu;
   real<lower=0> tau;
   real eta[J];
+  real<lower=0> weight[J];
 }
 transformed parameters {
   real theta[J];
@@ -51,14 +149,13 @@ transformed parameters {
     theta[j] = mu + tau * eta[j];
 }
 model {
-  eta ~ normal(0, 1);
-  y ~ normal(theta, sigma);
+    y ~ normal(theta, sigma); 
 }
 "
 #fit the model
 fit <- stan(model_code = stancode,
             data = stan.dat, iter = 4000, chains = 4)
-
+save.image("Meta.RData")
 #Posterior analysis
 post <- extract(fit, permuted = TRUE)
 quantile(exp(post$mu), probs = c(.025, .5, .975))      #the overall average
@@ -67,7 +164,7 @@ p.dat <- apply(exp(post$theta), 2, quantile, probs = c(.025, .5, .975))
 p.dat <- data.frame(lower = p.dat[1, ], rr = p.dat[2, ], upper = p.dat[3, ])
 p.dat <- rbind(p.dat, rct[, c("lower", "upper", "rr")])
 p.dat$lab <- rep(c("Theta", "Y"), each = J)
-p.dat$id <- rep(seq(14, 1), 2)
+p.dat$id <- rep(seq(20, 1), 2)
 p.dat$idlab <- factor(p.dat$id, labels = rev(paste(rct$Author, rct$year, sep = ", ")))
 p.dat$yint <- mean(exp(post$mu))
 ggplot(p.dat, aes(x = idlab, y = rr, ymin = lower, ymax = upper, col = lab)) +
@@ -75,26 +172,28 @@ ggplot(p.dat, aes(x = idlab, y = rr, ymin = lower, ymax = upper, col = lab)) +
   coord_flip() + geom_hline(aes(yintercept = yint), lty = 2) +  xlab("") +
   ylab("")  + theme(legend.position="bottom") +
   scale_colour_discrete(name="",
-                        labels = c("Theta" = bquote("Random effect:"~exp(theta[J])~" "),
+                        labels = c("Theta" = bquote("Random effect:"~exp(theta[J])),
                                    "Y"= bquote("Relative risk:"~exp(Y[J]))))+
   
-  theme(legend.key.size = unit(10, "pt"))+
-  theme(legend.text=element_text(size=15))+
-  theme(axis.text.x =element_text(size=20))+
-  theme(axis.text.y =element_text(size=15))+
+  theme(legend.key.size = unit(20, "pt"))+
+  theme(legend.text=element_text(size=20,face="bold", family = "sans"))+
+  theme(axis.text.x =element_text(size=20,face="bold", family = "sans"))+
+  theme(axis.text.y =element_text(size=20, face="bold", family = "sans"))+
   theme(
     plot.margin = margin(t = 20,  # Top edge distance
                          r = 10,  # Right edge distance
                          b = 10,  # Below edge distance
                          l = 20))+ # Left edge distance
-  theme(axis.title=element_text(size=15,face="bold"))+
-  theme(text = element_text(size = 20))+
+  theme(axis.title=element_text(size=10,face="bold", family = "sans"))+
+  theme(text = element_text(size = 15,face="bold", family = "sans"))+
   theme(panel.background = element_rect(fill = 'white'))+
-  theme(panel.border = element_rect(fill=NA,color="black", size=2, linetype="solid"))
+  theme(panel.border = element_rect(fill=NA,color="black", size=1.5, linetype="solid"))
+
 
 s <- nrow(post$mu)
-theta<- rep(NA, s)
-for (i in 1:s){
-  theta.new[i]  <- rnorm(1,  post$mu[i],  post$tau[i])
+theta.new <- rep(NA, s)
+for (i in 1:s){ 
+  theta.new[i]  <- rnorm(1,  post$mu[i],  post$tau[i]) 
 }
-quantile(exp(theta), probs = c(.025, .5, .975))
+quantile(exp(theta.new), probs = c(.025, .5, .975))
+
