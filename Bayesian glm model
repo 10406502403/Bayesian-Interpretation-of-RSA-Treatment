@@ -10,6 +10,9 @@ library(sjPlot)
 library(sjlabelled)
 library(sjmisc)
 library(readxl)
+library(gridExtra)
+library(loo)
+library(rstan)
 theme_set(theme_classic())
 options(mc.cores = 64)
 setwd("D:/rsa")
@@ -36,7 +39,7 @@ colnames(x_)[colnames(x_) == "X"] = "id"
 colnames(x_) = c("id", name_en)
 y = read_xlsx("y.xlsx")
 colnames(y) =  c("index", "y")
-y["y"] = sapply((y["y"] + 1e6) / 2e6, as.integer)           # Convert y to 0, 1
+
 
 x_ = x_[c('BA.Treatment.Result','Age','Weight','Height','BMI','Pregnant.Times','Delivery.Times','Cesarean.Delivery.Times','Natural.Labour.Times','Induced.Labour.Times','Spotaneous.Abortion.Times','Abortion.Time.Day','Fetal.Heart','Curettage','First.Trimester','Second.Trimester','Disease.History','Operation.History','Non.operation.History','Menophania','Menstrual.Cycle','Menstrual.Cycle.Day','Average.Period','Menstrual.Blood.Volume','Menstrual.Pain','Other.History',
           'Husband','UU','Syphilis','CT','HPV','TORCH','B19.Small.Virus','FSH','LH','E2','P','PRL','T','Insulin','TSH','TT3','TT4','FT3','FT4','TPOAb',
@@ -53,6 +56,16 @@ data = cbind(y["y"], x)                       # Put x, y together as data
 
 #The formula of models  
 form = as.formula(paste(c("y ~(", paste(colnames(x_[, ]), collapse='+'), ")"), collapse=""))  #The formular of Bayesian Multiple regression model
+#set prior
+prior_coeff <- c(normal(0,1))
+prior_coeff$location = c(1.4104, 1.4104, -0.2543, 0.3129, 0.4416, 0.4416, -0.3026,
+                         rep(0,225), -0.4431, 0.1149, rep(0,4), -1.1248, 0.1614,
+                         rep(0,87), -0.2445, -1.9627,0.1217,0.3131,rep(0,12))
+prior_coeff$scale = c(rep(1,343))
+prior_coeff1 <- c(normal(0,1))
+prior_coeff1$location = c(1.4104, 1.4104, -0.2543, 0.3129, 0.4416, 0.4416, -0.3026,
+                          -0.2445,-1.9627,0.1217,0.3131,-0.4431,0.1149,rep(0,22))
+prior_coeff1$scale = c(rep(1,35))
 
 #fit the model
 fit_va <- stan_glm(
@@ -66,14 +79,32 @@ fit_va <- stan_glm(
 
 
 # Rank features according to their contribution to predictive performance
-vs_va <- varsel(fit_va, method="forward", nterms_max=4)        #The first 4 features were selected
+vs_va <- varsel(fit_va, method="forward")        #The first 19 features were selected
 solution_terms(vs_va)
-plot(vs_va, stats = "acc")                 #The accuracy of the model
-plot(vs_va, stats = "elpd")                #The expected log predictive density of the model
-
-
 
 # Posterier predictive check
 plot(bayesplot::bayesplot_grid(pp_check(fit_va, seed = 123)))
-
+#Accuracy and ELPD
+p1_raw <- plot(vs_va, stats = "acc") +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
+        axis.title.x = element_text(face = "bold", size = 12,family = "sans"),
+        axis.title.y = element_text(face = "bold", size = 12,family = "sans"),
+        axis.text.x = element_text(size = 14,family = "sans",face = "bold"),
+        axis.text.y = element_text(size = 14, face = "bold",family = "sans"))+
+  theme(panel.border = element_rect(color = "black", fill = NA, size = 1), 
+        axis.line = element_line(size = 0))
+p1_raw + ggtitle("Accuracy vs. Variable")
+p2_raw <- plot(vs_va, stats = "elpd") +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
+        axis.title.x = element_text(face = "bold", size = 12,family = "sans"),
+        axis.title.y = element_text(face = "bold", size = 12,family ="sans"),
+        axis.text.x = element_text(size = 14,face = "bold",family = "sans"),
+        axis.text.y = element_text(size = 14,face = "bold",family = "sans"))+
+  theme(panel.border = element_rect(color = "black", fill = NA, size = 1.5), 
+                                    axis.line = element_line(size = 0))
+p2_raw + ggtitle("ELPD vs. Variable")
+combined_plot<-grid.arrange(p1, p2, ncol = 2)
+#traceplot
+my_palette <- c("#1f78b4", "#33a02c", "#ffa500", "#ffff33")
+plot(fit_va2,"trace")+theme(legend.position = "none")
 
