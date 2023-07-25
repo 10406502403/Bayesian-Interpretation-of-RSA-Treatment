@@ -10,6 +10,9 @@ library(sjPlot)
 library(sjlabelled)
 library(sjmisc)
 library(readxl)
+library(gridExtra)
+library(loo)
+library(rstan)
 theme_set(theme_classic())
 options(mc.cores = 64)
 setwd("D:/rsa")
@@ -51,6 +54,17 @@ x = lapply(x_[colnames(x_)], as.factor) #x converted to factor
 data = cbind(y["y"], x)                       # Put x, y together as data
 #The formula of models  
 form1=as.formula(y ~BA.Treatment.Result*(Age+Blood.Type+Anticardiolipin.Antibody.IgM.))    #The formula of empirical model
+#set prior
+prior_coeff <- c(normal(0,1))
+prior_coeff$location = c(1.4104, 1.4104, -0.2543, 0.3129, 0.4416, 0.4416, -0.3026,
+                         rep(0,225), -0.4431, 0.1149, rep(0,4), -1.1248, 0.1614,
+                         rep(0,87), -0.2445, -1.9627,0.1217,0.3131,rep(0,12))
+prior_coeff$scale = c(rep(1,343))
+
+prior_coeff1 <- c(normal(0,1))
+prior_coeff1$location = c(1.4104, 1.4104, -0.2543, 0.3129, 0.4416, 0.4416, -0.3026,
+                          -0.2445,-1.9627,0.1217,0.3131,-0.4431,0.1149,rep(0,22))
+prior_coeff1$scale = c(rep(1,35))
 
 #fit the model
 fit_va1<- stan_glm(
@@ -78,9 +92,6 @@ temp_pars = c("Intercept")
 #temp_pars = c("BA.Treatment.Result2")
 #temp_pars = c("BA.Treatment.Result3")
 mcmc_areas(h, regex_pars=temp_pars)
-
-
 # Posterier predictive check
-
 plot(bayesplot::bayesplot_grid(pp_check(fit_va1, seed = 123)))
           
